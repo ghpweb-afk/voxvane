@@ -1,0 +1,211 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "VoxVane Text to Speech",
+    "version": "1.0.0",
+    "summary": "Send text, get audio. The preview is not generally available yet.",
+    "description": "Customers authenticate with an API key and receive audio bytes. Voice rendering stays on VoxVane servers. This document is the public contract. It does not describe model weights or voice internals."
+  },
+  "servers": [{ "url": "https://api.voxvane.com" }],
+  "security": [{ "bearerAuth": [] }],
+  "tags": [{ "name": "Speech" }, { "name": "Voices" }, { "name": "Account" }],
+  "paths": {
+    "/v1/health": {
+      "get": {
+        "operationId": "health",
+        "summary": "Liveness",
+        "security": [],
+        "tags": ["Account"],
+        "responses": {
+          "200": {
+            "description": "The service is up. status is disabled until the API is turned on. aria_rev is the 40-character label of the voice package when one is configured.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": { "type": "string" },
+                    "version": { "type": "string" },
+                    "aria_rev": { "type": "string" },
+                    "notices": { "type": "array", "items": { "type": "string" } }
+                  },
+                  "required": ["status", "version"]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/voices": {
+      "get": {
+        "operationId": "listVoices",
+        "summary": "List voices",
+        "tags": ["Voices"],
+        "responses": {
+          "200": {
+            "description": "Voices this key can request.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/VoiceList" },
+                "example": { "voices": [{ "voice_id": "aria", "name": "VoxVane Aria", "language": "en-US", "description": "Warm, clear, unhurried. The receptionist default." }] }
+              }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "503": { "$ref": "#/components/responses/NotEnabled" }
+        }
+      }
+    },
+    "/v1/text-to-speech/{voice_id}": {
+      "post": {
+        "operationId": "createSpeech",
+        "summary": "Create speech",
+        "tags": ["Speech"],
+        "x-snippet": "tts",
+        "parameters": [
+          { "name": "voice_id", "in": "path", "required": true, "schema": { "type": "string" }, "description": "A voice id from `GET /v1/voices`, such as `aria`." },
+          { "name": "output_format", "in": "query", "required": false, "schema": { "type": "string", "enum": ["mp3", "wav", "pcm", "mulaw_8000"] }, "description": "Optional. The JSON body field wins when both are set." }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/SpeechRequest" },
+              "example": { "text": "Hello from VoxVane.", "output_format": "mp3" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Audio bytes. `mp3` is `audio/mpeg`, `wav` is `audio/wav`, `pcm` is `audio/L16` at 24000 Hz, `mulaw_8000` is `audio/basic` at 8000 Hz.",
+            "headers": {
+              "X-VoxVane-Characters": { "schema": { "type": "integer" }, "description": "Characters of input text counted for this request." },
+              "X-VoxVane-Audio-Seconds": { "schema": { "type": "number" }, "description": "Seconds of audio returned." },
+              "X-VoxVane-Request-Id": { "schema": { "type": "string" } }
+            },
+            "content": {
+              "audio/mpeg": { "schema": { "type": "string", "contentMediaType": "audio/mpeg" } },
+              "audio/wav": { "schema": { "type": "string", "contentMediaType": "audio/wav" } },
+              "audio/L16": { "schema": { "type": "string", "contentMediaType": "audio/L16" } },
+              "audio/basic": { "schema": { "type": "string", "contentMediaType": "audio/basic" } }
+            }
+          },
+          "400": { "$ref": "#/components/responses/Invalid" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "402": { "$ref": "#/components/responses/SpendCap" },
+          "404": { "$ref": "#/components/responses/VoiceMissing" },
+          "429": { "$ref": "#/components/responses/RateLimited" },
+          "503": { "$ref": "#/components/responses/NotEnabled" }
+        }
+      }
+    },
+    "/v1/text-to-speech/{voice_id}/stream": {
+      "post": {
+        "operationId": "streamSpeech",
+        "summary": "Stream speech",
+        "tags": ["Speech"],
+        "x-snippet": "ttsStream",
+        "description": "Same request as create speech. The body is chunked audio of the same format, so a client can start playback before the response ends.",
+        "parameters": [
+          { "name": "voice_id", "in": "path", "required": true, "schema": { "type": "string" }, "description": "A voice id from `GET /v1/voices`." }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/SpeechRequest" } } }
+        },
+        "responses": {
+          "200": { "description": "Chunked audio. Headers match create speech." },
+          "400": { "$ref": "#/components/responses/Invalid" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "402": { "$ref": "#/components/responses/SpendCap" },
+          "404": { "$ref": "#/components/responses/VoiceMissing" },
+          "429": { "$ref": "#/components/responses/RateLimited" },
+          "503": { "$ref": "#/components/responses/NotEnabled" }
+        }
+      }
+    },
+    "/v1/usage": {
+      "get": {
+        "operationId": "usage",
+        "summary": "Usage for this key",
+        "tags": ["Account"],
+        "responses": {
+          "200": {
+            "description": "Characters and audio seconds recorded for this key. Text to speech is $0.012 per 1,000 characters (price_version 2026-10-03).",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Usage" },
+                "example": { "requests": 2, "characters": 24, "audio_seconds": 1.4, "priced": true, "price_version": "2026-10-03", "customer_usd": 0.000288, "usd_per_thousand_characters": 0.012 }
+              }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "503": { "$ref": "#/components/responses/NotEnabled" }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": { "type": "http", "scheme": "bearer", "description": "API key issued for the private preview. Send it as Authorization: Bearer." }
+    },
+    "schemas": {
+      "SpeechRequest": {
+        "type": "object",
+        "required": ["text"],
+        "properties": {
+          "text": { "type": "string", "minLength": 1, "maxLength": 5000, "description": "Text to speak. Every character counts, including spaces." },
+          "output_format": { "type": "string", "enum": ["mp3", "wav", "pcm", "mulaw_8000"], "default": "mp3", "description": "`mp3` (default), `wav`, `pcm` (16-bit little-endian, 24000 Hz, mono), or `mulaw_8000` (8-bit mu-law, 8000 Hz, mono)." }
+        }
+      },
+      "Voice": {
+        "type": "object",
+        "required": ["voice_id", "name", "language"],
+        "properties": {
+          "voice_id": { "type": "string" },
+          "name": { "type": "string" },
+          "language": { "type": "string" },
+          "description": { "type": "string" }
+        }
+      },
+      "VoiceList": {
+        "type": "object",
+        "required": ["voices"],
+        "properties": { "voices": { "type": "array", "items": { "$ref": "#/components/schemas/Voice" } } }
+      },
+      "Usage": {
+        "type": "object",
+        "required": ["requests", "characters", "audio_seconds", "priced", "price_version"],
+        "properties": {
+          "requests": { "type": "integer" },
+          "characters": { "type": "integer" },
+          "audio_seconds": { "type": "number" },
+          "priced": { "type": "boolean" },
+          "price_version": { "type": "string" },
+          "customer_usd": { "type": ["number", "null"], "description": "Customer charge for settled characters at the published per-character price. Null when the key's server has no price." },
+          "usd_per_thousand_characters": { "type": "number", "description": "Published text-to-speech price. Present when priced is true." }
+        }
+      },
+      "Error": {
+        "type": "object",
+        "required": ["error"],
+        "properties": {
+          "error": {
+            "type": "object",
+            "required": ["code", "message"],
+            "properties": { "code": { "type": "string" }, "message": { "type": "string" } }
+          }
+        }
+      }
+    },
+    "responses": {
+      "Invalid": { "description": "The request body or output format is not valid.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+      "Unauthorized": { "description": "The API key is missing or not recognized.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+      "SpendCap": { "description": "The account test spend cap has been reached. No audio is returned.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+      "VoiceMissing": { "description": "That voice id is not available to this key.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+      "RateLimited": { "description": "Too many requests or characters in the last minute. Retry-After is set.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+      "NotEnabled": { "description": "The API is turned off, or the voice runtime is not available.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
+    }
+  }
+}

@@ -1,0 +1,10 @@
+[project]
+name = "voxvane"
+version = "0.1.0"
+description = "HTTP client for the VoxVane text-to-speech API. Not published."
+requires-python = ">=3.11"
+readme = "README.md"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["voxvane*"]
